@@ -1,0 +1,288 @@
+
+# GitLab
+
+
+## Problematiche, CI
+
+
+Utilizzando GitLab verrebbe naturale utilizzare le funzioni di CI per velocizzare il testing e la certificazione. Perchè questio sia possibile bisognerebbe far in modo che il deploy di ogni progetto fosse *completamente* scriptabile.
+
+Il vantaggio di avere un deploy del genere è che da ogni commit si potrebbe passare ad un docker con l'ambiente completo con molta facilità, permettendo di testare/deployare facilmente e permettendo linee di sviluppo parallele che non si condizionano fino ad un merge
+
+Questo penso sia l'obbiettivo da raggiungere ma bisogna tener conto della realtà di Generali
+
+## Struttura tipica di un progetto business Generali
+
+
+
+Possiamo organizzare la struttura per linguaggi\ambienti\metodologie di deploy
+
+* **Java**
+  Java ed i suoi tool di sviluppo si prestano naturalmente alle metodologie CI offerte da GitLab. 
+  1. Gira dappertutto. 
+  2. è contenibile in un docker
+  3. Maven scripta le dipendenze (un progetto è *autocontenuto*)
+* **Oracle DB + PL\SQL**
+  Esistono vari ambienti (C K P ...) ognuno con il proprio database che contiente, insieme,
+  DDL, PL\SQL e dati per i test. Ogni cantiere usa una propria metodologia per gestire l'accesso agli ambienti, per prevenire collisioni distruttive nell'aggiornamento, etc.
+  Tipicamente cambiare la struttura DDL richiede di interfacciarsi con i DA, quindi un programmatore Java si può ritrovare spesso bloccato aspettendo il lavoro altui. 
+  1. Un numero predefinito di ambienti
+  2. non è contenibile. (a meno di utilizzare qualche licenza Oracle strana che ti permetta di metterlo in un docker)
+  3. Si potrebbe scriptare tutto, da un db vuoto alle tabelle + pl\sql + utenti + grants + dati test. 
+* **Cobol**
+  Vari ambienti, ognuno con script differenti, da allineare a mano.
+  1. Numero predefinito di ambienti (SystemZ ?)
+  2. è contenibile ma il contenitore anche se in grado di far girare il cobol potrebbe non essere uguale a dove andrà alla fine, le connessioni al db ed a java potrebbero dover essere wrappate
+  3. si può scriptare? quanto nuovi script dipendono da vecchi? come gestire dipendenze?
+ 
+ | |Dockerizzabile | Versionato | Scriptabile(test\deploy) |
+ |-|-------------------|--------------|-------
+|**Java**| Si | Si |  Si
+|**Pl\SQL Oracle** |No|No|Si
+|**Cobol**|?|No|?
+
+ 
+## Scenario ideale
+```mermaid
+gantt
+    title Sequenza ideale tipo
+    dateFormat  YYYY-MM-DD
+    section GitLab
+    Creazione Struttura Git :aa1,after a1,  1000m
+    Build Docker Sviluppo [0]    :done,after aa1  , 1000m
+    Push Git Task C: rev,after cct,500m
+    Push Git Task J: revm,after ct,500m
+    Merge Git Task C + J -> Sviluppo: merb,after me,500m
+    Build Docker Sviluppo[1]     :done,bds2,after merb  , 1d
+    Unit Tests:ut,after bds2,200m
+    Static Tests:st,after ut,200m
+    
+    
+    section PM
+    Creazione Progetto (Template) :a1, 2014-01-01, 2d
+    Creazione Squadra :p,after a1, 1d
+    Assegnazione task     :after p, 3d
+    Revisione Task C: rev,after cct,1000m
+    Revisione Task J: reva,after ct,1000m
+    Merge dei task, avanzamento: me,after reva,1000m
+
+    section Svil. Java
+    Presa Task      :active,a,2014-01-12  , 1d
+    Scaricamento Docker Svil.[0]      : b,after a,1d
+    Sviluppo : c,after b,5d
+    Chiusura Task:crit,ct,after c,1000m
+    Presa Task      :active,a4,after bds2  , 1d
+    Scaricamento Docker Svil.[1]      : b4,after a4,1d
+    Sviluppo : c4,after b4,5d
+    Chiusura Task:crit,ct4,after c4,1000m
+    section Svil. Cobol
+    Presa Task      :active,ca,2014-01-05  , 1d
+    Scaricamento Docker Svil.[0]      : cb,after ca,1d
+    Sviluppo : cc,after cb,3d
+    Chiusura Task:crit,cct,after cc,1000m
+
+
+
+```
+**Strutura git:**
+```mermaid
+graph LR
+style A0 fill:#6fcb9f,stroke:#333,stroke-width:4px
+style A fill:#6fcb9f,stroke:#333,stroke-width:4px
+style B1 fill:#6fcb9f,stroke:#333,stroke-width:4px
+style M fill:#6fcb9f,stroke:#333,stroke-width:4px
+style B fill:#6fcb9f,stroke:#333,stroke-width:4px
+style C fill:#6fcb9f,stroke:#333,stroke-width:4px
+style N fill:#6fcb9f,stroke:#333,stroke-width:4px
+style B fill:#6fcb9f,stroke:#333,stroke-width:4px
+style H fill:#fb2e01,stroke:#333,stroke-width:2px
+style HOT fill:#fb2e01,stroke:#333,stroke-width:2px
+style DEV fill:#ffe28a
+style D fill:#ffe28a
+style H1 fill:#ffe28a
+style H2 fill:#ffe28a
+style E fill:#ffe28a
+style F fill:#ffe28a
+style G fill:#ffe28a
+style S fill:#fffeb3
+style S1 fill:#fffeb3
+style EN fill:#fffeb3
+style S2 fill:#fffeb3
+style S3 fill:#fffeb3
+style COB fill:#fffeb3
+style COB1 fill:#fffeb3
+style FEATURE fill:#fffeb3
+M((MASTER))
+DEV(DEVELOP)
+HOT[HOTFIX]
+FEATURE[FEATURE]
+A0((<h1>Creazione<br>progetto)) --> A((Branch GitFlow))
+A --> B(( ))
+B --> B1(( ))
+B --> H[<h3>HotFix</h3>, modifica urgente<br> direttamente sul master]
+H --> B1
+B1 --> C(( ))
+A --> D(Develop Branch <h3>Creazione<br> docker sviluppo</h3>)
+D --> S[<b>Task 0:</b><br>sviluppo java]
+S --> S1[ ]
+S1 --> S2[ ]
+S2 --> S3[ ]
+S3 --> E(E)
+S1 --> EN[Commit <br> scartato..]
+D --> E(<b>Merge</b>: Develop + Task1)
+E --> F(<h3>Rigenerazione<br> docker sviluppo,CI</h3)
+F --> COB[<b>Task 1...</b> ]
+COB --> COB1[ ]
+COB1 --> G( )
+F -->G
+G -->C
+G -->H1( )
+H1 -->H2 ( )
+C --> N((Rilascio))
+```
+Ogni programmatore seleziona un task tra quelli a lui assegnati. Si ricrea l'ambiente di sviluppo scaricandosi il l'immagine docker dal branch di riferimento. Ha adesso una macchina configurata con tutto solo per lui. Completa il task, lo chiude, scrivendo anche i test. Il PM riceve notifica del commit, mergia nel ramo di sviluppo, ricrea il docker (Questi passi sono fortemente automatizzati). 
+Una volta accumulati abbastanza task da permettere un avanzamento si può mergiare sul ramo principale, facendo scattare attraverso CD il deploy della nuova versione.
+
+
+## Perchè, cosa se ne guadagna?
+
+* Molto del lavoro di sviluppo corrente è legato al passaggio di dati tra 
+Java <-> Cobol <-> Pl/SQL <-> Oracle.
+```mermaid
+%% Example of sequence diagram
+  sequenceDiagram
+	opt Ad ogni passaggio i dati vengono ri-marshallizati
+    Java->>COBOL: Update
+    COBOL->>Oracle DB: Update
+    end
+    opt bisogna mantere corrispondenza JavaBean\Strutura tabella
+    Java->>Oracle DB: SQL
+    Oracle DB->>Java: Query Result
+    
+    Java->>PL\SQL: Query+  update
+    PL\SQL-->Oracle DB: Tinkering...
+ 
+    PL\SQL ->> Java: Result
+    end
+
+```
+* Ogni modifica ai tipi si ripercuote sull'intera struttura, sistema fragile
+* Ogni volta che bisogna implementare una nuova funzione bisogna seguire il flusso delle strutture dati dal db a java bloccando i programmatori. 
+* Ogni modifica introduce regressioni ed è costosa, serve la mediazione di un PM anche solo per cambiare un campo. 
+* I test sono tutti fatti a mano e quindi costosissimi e non sempre esatti. 
+* Replicare un intero ambiente di sviluppo è difficile.
+* Più autonomia ai programmatori ma meno potere, è impossibile per errore causare danni + o - seri.
+
+## In più...
+* GitLab integra un sitema di issue tracking evoluto e semplice
+* Permette di visualizzare lo sviluppo eliminando la necessità di creare tutti i documenti (file excel con le ore, % realizzazione, etc) che tipicamente accompagnano uno sviluppo
+* Unifica le metodologie e forza il loro utilizzo in tutti i cantieri
+
+## Ma...
+
+Come desunto dalla struttura tipo è molto difficile arrivare allo scenario ideale. Bisogna pensare a strutture ibride. Bisogna indagare inoltre sulle tecnologie offerte in questo senso da Oracle e IBM
+
+[CI nei mainframe](https://www.leadingagile.com/2016/11/the-state-of-mainframe-continuous-delivery)
+[Cobol](https://dzone.com/articles/the-state-of-mainframe-continuous-delivery)
+[Proposta IBM per CI](https://www-01.ibm.com/events/wwe/grp/grp004.nsf/vLookupPDFs/z%20Systems_Track%203_Session%205_Enable%20Continuous%20Delivery%20with%20Automated%20Testing%20and%20Deployment_NYC/$file/z%20Systems_Track%203_Session%205_Enable%20Continuous%20Delivery%20with%20Automated%20Testing%20and%20Deployment_NYC.pdf)
+[Cobol microservice](https://articles.microservices.com/writing-docker-microservices-in-cobol-de72d5947b4f)
+
+## Cosa vuol dire strutture ibride?
+#### CI:
+```mermaid
+graph LR
+style db fill:#fffeb3,stroke-width:3px
+style java fill:#fffeb3,stroke-width:3px
+style Stub fill:#fffeb3,stroke-width:3px
+style Configurazioni fill:#fffeb3,stroke-width:3px
+style Cobol fill:#fffeb3,stroke-width:3px
+style mic fill:#fb2e01,stroke:#333,stroke-width:2px
+
+db -.-> orxe(Oracle XE?)
+style cont fill:#6fcb9f,stroke:#000,stroke-width:2px
+cont(<h3>Dockerfile</h3>Script x buildare il docker<ul><li>Scarica il sistema</li><li>Scarica codice da repository<li>Scarica librerie da nexus<li>configura gli ambienti<li>compila tutto<li>installa il db<li>inserisce dati per test<li>lancia i test)
+Cobol --> cont
+Cobol -.-> cc(runttime il più possibile<br> simile a quello finale)
+Configurazioni --> cont
+Stub[<b>Stub</b><br>Tutto quello che non<br>si può includere lo si<br>simula] --> cont
+
+java --> cont
+db[PL\SQL, DDL, Oracle] --> cont
+
+cont ==> mic((immagine<br>di sviluppo))
+```
+Per *strutture ibride* si intende la rottura parziale del paradigma secondo cui tutto quello che è necessario per definire\sviluppare\testare un progetto è contenuto nel suo codice.
+
+Idealmente se un progetto fosse completamente definito tutte le operazioni sarebbero facilmente automatizzabili perchè non dipenderebbero da uno stato esterno quindi è garantita la funzionalità.
+
+Questo non è possibile perchè bisogna interfacciarsi con sistemi legacy, DB esterni, tester umani, ecc. Data questa situazione è necessario fornire due tipi di supporto per gestire fonti esterne:
+* **Connettori + configurazione**: forniscono interfaccie, classi e quant'altro per permettere di comunicare con l'esterno.
+sono relativamente facili da creare, espongono la funzionalità completa ma introducono entropia durante lo sviluppo
+* **Stub**: servizi simili, classi farlocche, server rest simulati,etc. questa metodologia è più costosa da implementare correttamente ma permette di mantenere lo sviluppo il quanto più possibile chiuso e replicabile. Si possono immaginare dei template e delle metodologie che, adattate ad ogni progetto, crescono con esso (scrivo i test creando lo stub, man mano che si aggiunge funzionalità lo stub diventa sempre più preciso) 
+
+
+Nel caso dei connettori si possono immaginare anche collegamenti ad altri servizzi di sviluppo (Serena, bugtracker vari). Questo permetterebbe una transazione più scorrevole ed una continuità nello sviluppo in cui GitLab prima si affianca ai vecchi sistemi per poi sostituirli con l'andare avanti dello sviluppo.
+
+# Cos'è un immagine sviluppo...
+https://github.com/fgrehm/docker-eclipse
+https://github.com/oracle/docker-images
+https://articles.microservices.com/writing-docker-microservices-in-cobol-de72d5947b4f
+https://blog.docker.com/2017/09/docker-ee-on-ibm-z-mainframe/
+http://www.datacenterknowledge.com/docker/docker-can-now-containerize-legacy-apps-running-mainframes
+
+```mermaid
+graph TD
+style imf fill:#fb2e01,stroke:#333,stroke-width:2px
+sis[<b>Sistema</b>:<ul><li> skinny ubuntu<li>REHL]
+zzsis[<b>Sistema</b>:<ul><li> z/os linux]
+tol[<b>Tool</b><ul><li>Eclipse<li>Toad<li>Etc..<li>Sublime text]
+db[<b>DB</b><ul><li>Oracle XE]
+cob[<b>COBOL</b><ul><li>Codice legacy<li>nuovo codice]
+con[<b>Configurazioni</b><ul><li>setup degli ambienti<li>maven<li>connettori<li>collegamento host <-> immagine]
+upd[<b>Update dal GIT di sviluppo]
+scri[<b>ricreazione DB,PL\SQL,COBOL]
+test[<b>tutti i test]
+imf((Immagine di sviluppo))
+serv[<b>Server:</b><ul><li>eap<li>etc...]
+sis --> tol
+sis --> serv
+sis -.-> zzsis
+sis --> db
+zzsis --> cob
+serv --> con
+tol --> con
+db --> con
+cob --> con
+con ==> upd
+upd ==> scri
+scri ==> test
+test ==> imf
+
+```
+L'immagine di sviluppo è composta da varie immagini, le quali contengono tutto ciò che è neccessario per avviare\editare\debuggare il codice. Queste a loro volata dipendono da un'immagine che contiene il sistema operativo di base. A tutto ciò si aggiungono le varie immagini che contengono i tool di sviluppo (come eclipse, etc..)
+In questa maniera e attraverso l'uso degli stub per tutto quello che non si può inserire (si spera niente...) si crea un unico binario che contiene tutto ciò che serve. Ricreare l'ambiente di sviluppo a questo punto richiede una singola riga di CLI, portandosi dietro tutti i plugin, configurazioni, etc che possono aiutare, semplificando ed unificando il lavoro e rendendo molto facile passare un progetto da un team all'altro. Inoltre permette di condividere l'ambiente senza che questo abbia alcun effetto al di fuori, per esempio con i beta tester, i quali avranno ognuno un istanza pulita per ogni test, o ancora con il managment per presentare un progetto.
+
+Tutte le operazioni per generare l'immagine sono scriptate e questi script fanno parte del progetto stesso, oltre che dipendere da altre immagini di uso comune(come il DB Oracle). In questo modo un commit contiene tutto ciò che è necessario per sviluppare su di esso. GitLab si occupa di mantenere la struttura dal git rispettando gli ruoli e di buildare e rendere disponibili le immagini attraverso la CI
+
+```mermaid
+graph TD
+PM --> cat[Creazione\assegnazione Task]
+cat -.- pict[Presa in carico task]
+s[Sviluppatore] --> pict
+pict --> Pull[Git pull]
+pict --> dp[Docker Pull]
+Pull --> sv[Sviluppo]
+dp --> sv
+sv --> f[fine sviluppo]
+f --> ct[Push git, chiusura Task]
+ct --> sviluppatore..
+ct -.-> n[Notifica richiesta di merge]
+PM --> pm[PM]
+n -.-> pm
+pm --> merge
+merge --> CI[GitLab ricompila l'immagine di sviluppo]
+sviluppatore.. --> ni[nuova interazione di sviluppo..]
+CI --> ni
+pm -.-> ni
+```
+
